@@ -1,0 +1,117 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(19, 34, 31, 0.32);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.modal-card {
+  width: min(100%, 520px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e2e8e1;
+  box-shadow: 0 22px 60px rgba(20, 42, 38, 0.18);
+  padding: 24px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.5px;
+  color: #1f342d;
+}
+
+.close-button {
+  border: 0;
+  background: #f2f4f1;
+  color: #325047;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.job-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.job-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #47615a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.job-form input,
+.job-form select {
+  border: 1px solid #d7dfd7;
+  border-radius: 10px;
+  background: #f9fbf9;
+  min-height: 42px;
+  padding: 10px 12px;
+  color: #1f342d;
+  font: inherit;
+}
+
+.job-form input:focus,
+.job-form select:focus {
+  outline: 2px solid rgba(218, 130, 109, 0.22);
+  border-color: #d88d76;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.secondary-button,
+.primary-button {
+  border-radius: 10px;
+  border: 0;
+  min-height: 40px;
+  padding: 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondary-button {
+  background: #edf2ee;
+  color: #35564d;
+}
+
+.primary-button {
+  background: #d97765;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    padding: 18px;
+  }
+}
