@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ensurePocketBaseAuth, pb } from './lib/pocketbase'
+import { persist, supabase } from './lib/supabase'
 import './App.css'
 import './form.css'
 
-type ViewKey = 'Overview' | 'Jobs' | 'Families' | 'Fundraising'
+type ViewKey = 'Overview' | 'Jobs' | 'Families' | 'Fundraising' | 'Settings'
+type Theme = 'light' | 'forest' | 'high-contrast'
+type FontSize = 'small' | 'medium' | 'large'
 type JobStatus = 'Needs review' | 'Awaiting parent' | 'Ready to assign' | 'Payment pending'
 type Job = {
   id: string
@@ -42,6 +44,15 @@ type FundraisingGoal = {
 
 type FamilyDraft = Omit<Family, 'id'>
 type GoalDraft = Omit<FundraisingGoal, 'id'>
+type WorkspaceSettings = {
+  church_name: string
+  contact_email: string
+  currency: string
+  default_job_amount: number
+  notifications_enabled: boolean
+  theme: Theme
+  font_size: FontSize
+}
 
 const jobsStorageKey = 'church-fund-raiser-jobs'
 const familiesStorageKey = 'church-fund-raiser-families'
@@ -122,6 +133,16 @@ const defaultGoalDraft: GoalDraft = {
   status: 'On pace',
 }
 
+const defaultSettings: WorkspaceSettings = {
+  church_name: 'Grace Community',
+  contact_email: '',
+  currency: 'USD',
+  default_job_amount: 0,
+  notifications_enabled: true,
+  theme: 'light',
+  font_size: 'medium',
+}
+
 function App() {
   const [jobs, setJobs] = useState<Job[]>(() => {
     if (typeof window === 'undefined') return initialJobs
@@ -177,6 +198,12 @@ function App() {
   const [goalDraft, setGoalDraft] = useState<GoalDraft>(defaultGoalDraft)
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false)
+  const [settings, setSettings] = useState<WorkspaceSettings>(defaultSettings)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme
+    document.documentElement.dataset.fontSize = settings.font_size
+  }, [settings.theme, settings.font_size])
 
   useEffect(() => {
     try {
@@ -209,20 +236,26 @@ function App() {
 
   useEffect(() => {
     const loadFromDb = async () => {
-      try {
-        await ensurePocketBaseAuth()
+      if (!supabase) return
 
-        const [jobData, familyData, goalData] = await Promise.all([
-          pb.collection('jobs').getFullList({ sort: '-created' }),
-          pb.collection('families').getFullList({ sort: '-created' }),
-          pb.collection('fundraising_goals').getFullList({ sort: '-created' }),
+      try {
+        const [jobsResult, familiesResult, goalsResult, settingsResult] = await Promise.all([
+          supabase.from('jobs').select('*').order('created_at', { ascending: false }),
+          supabase.from('families').select('*').order('created_at', { ascending: false }),
+          supabase.from('fundraising_goals').select('*').order('created_at', { ascending: false }),
+          supabase.from('workspace_settings').select('*').eq('id', 'default').maybeSingle(),
         ])
 
-        if (jobData.length) setJobs(normalizeJobs(jobData as Partial<Job>[]))
-        if (familyData.length) setFamilies(normalizeFamilies(familyData as Partial<Family>[]))
-        if (goalData.length) setGoals(normalizeGoals(goalData as Partial<FundraisingGoal>[]))
+        if (jobsResult.error) throw jobsResult.error
+        if (familiesResult.error) throw familiesResult.error
+        if (goalsResult.error) throw goalsResult.error
+        if (settingsResult.error) throw settingsResult.error
+        if (jobsResult.data?.length) setJobs(normalizeJobs(jobsResult.data as Partial<Job>[]))
+        if (familiesResult.data?.length) setFamilies(normalizeFamilies(familiesResult.data as Partial<Family>[]))
+        if (goalsResult.data?.length) setGoals(normalizeGoals(goalsResult.data as Partial<FundraisingGoal>[]))
+        if (settingsResult.data) setSettings((current) => ({ ...current, ...settingsResult.data }))
       } catch {
-        // allow the app to continue in local/demo mode if PocketBase is not yet initialized
+        // allow the app to continue in local/demo mode if Supabase is not configured yet
       }
     }
 
@@ -239,6 +272,43 @@ function App() {
     window.setTimeout(() => setNotice(''), 3500)
   }
 
+  const updateSettings = <K extends keyof WorkspaceSettings>(field: K, value: WorkspaceSettings[K]) => {
+    const nextSettings = { ...settings, [field]: value }
+    setSettings(nextSettings)
+    if (supabase) persist(supabase.from('workspace_settings').upsert({ id: 'default', ...nextSettings, updated_at: new Date().toISOString() }))
+  }
+
+  const renderSettingsView = () => (
+    <div className="settings-layout">
+      <div className="view-header">
+        <div>
+          <p className="eyebrow">Workspace</p>
+          <h2>Settings</h2>
+          <p className="settings-lede">Tune the workspace for your church team. Changes save to the live database.</p>
+        </div>
+        <span className="settings-live"><i /> Live sync</span>
+      </div>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><h3>Church profile</h3><p>Details shown across the workspace.</p></div>
+        <div className="settings-form-grid">
+          <label className="field-group"><span>Church name</span><input value={settings.church_name} onChange={(event) => updateSettings('church_name', event.target.value)} /></label>
+          <label className="field-group"><span>Contact email</span><input type="email" value={settings.contact_email} onChange={(event) => updateSettings('contact_email', event.target.value)} placeholder="office@example.org" /></label>
+          <label className="field-group"><span>Currency</span><select value={settings.currency} onChange={(event) => updateSettings('currency', event.target.value)}><option value="USD">USD - US Dollar</option><option value="CAD">CAD - Canadian Dollar</option><option value="GBP">GBP - British Pound</option></select></label>
+          <label className="field-group"><span>Default job amount</span><input type="number" min="0" value={settings.default_job_amount} onChange={(event) => updateSettings('default_job_amount', Number(event.target.value) || 0)} /></label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><h3>Appearance</h3><p>Make Goodwork comfortable for your team.</p></div>
+        <div className="settings-choice-row"><span><strong>Theme</strong><small>Choose the workspace mood.</small></span><div className="segmented-control">{(['light', 'forest', 'high-contrast'] as Theme[]).map((theme) => <button key={theme} type="button" className={settings.theme === theme ? 'selected' : ''} onClick={() => updateSettings('theme', theme)}>{theme === 'high-contrast' ? 'High contrast' : theme[0].toUpperCase() + theme.slice(1)}</button>)}</div></div>
+        <div className="settings-choice-row"><span><strong>Font size</strong><small>Adjust reading comfort across the app.</small></span><div className="segmented-control">{(['small', 'medium', 'large'] as FontSize[]).map((size) => <button key={size} type="button" className={settings.font_size === size ? 'selected' : ''} onClick={() => updateSettings('font_size', size)}>{size[0].toUpperCase() + size.slice(1)}</button>)}</div></div>
+      </section>
+
+      <section className="settings-section settings-toggle-row"><span><strong>Notifications</strong><small>Keep review and payment reminders enabled.</small></span><button type="button" className={settings.notifications_enabled ? 'toggle selected' : 'toggle'} onClick={() => updateSettings('notifications_enabled', !settings.notifications_enabled)} aria-pressed={settings.notifications_enabled}><span /></button></section>
+    </div>
+  )
+
   const confirmPayment = (jobId: string) => {
     const nextJobs = jobs.map((job) => (job.id === jobId ? { ...job, status: 'Payment pending' as JobStatus } : job))
     setJobs(nextJobs)
@@ -246,9 +316,7 @@ function App() {
     try {
       const currentJob = nextJobs.find((job) => job.id === jobId)
       if (currentJob) {
-        void pb.collection('jobs').update(jobId, {
-          status: currentJob.status,
-        })
+          if (supabase) persist(supabase.from('jobs').update({ status: currentJob.status }).eq('id', jobId))
       }
     } catch {
       // ignore database update failures and keep local state responsive
@@ -273,9 +341,7 @@ function App() {
     try {
       const currentJob = nextJobs.find((job) => job.id === jobId)
       if (currentJob) {
-        void pb.collection('jobs').update(jobId, {
-          status: currentJob.status,
-        })
+          if (supabase) persist(supabase.from('jobs').update({ status: currentJob.status }).eq('id', jobId))
       }
     } catch {
       // ignore database update failures and keep local state responsive
@@ -299,7 +365,7 @@ function App() {
     setJobs(updatedJobs)
 
     try {
-      void pb.collection('jobs').update(detailDraft.id, {
+      if (supabase) persist(supabase.from('jobs').update({
         title: detailDraft.title,
         category: detailDraft.category,
         requestor: detailDraft.requestor,
@@ -309,7 +375,7 @@ function App() {
         date: detailDraft.date,
         amount: detailDraft.amount,
         notes: detailDraft.notes,
-      })
+      }).eq('id', detailDraft.id))
     } catch {
       // ignore database update failures and keep local state responsive
     }
@@ -348,7 +414,7 @@ function App() {
     setJobs((current) => [newJob, ...current])
 
     try {
-      void pb.collection('jobs').create({
+      if (supabase) persist(supabase.from('jobs').insert({
         id: newJob.id,
         title: newJob.title,
         category: newJob.category,
@@ -359,7 +425,7 @@ function App() {
         date: newJob.date,
         amount: newJob.amount,
         notes: newJob.notes,
-      })
+      }))
     } catch {
       // ignore database write failures and keep local state responsive
     }
@@ -389,7 +455,7 @@ function App() {
       setFamilies(nextFamilies)
 
       try {
-        void pb.collection('families').update(editingFamilyId, { ...familyDraft })
+        if (supabase) persist(supabase.from('families').update({ ...familyDraft }).eq('id', editingFamilyId))
       } catch {
         // ignore database update failures and keep local state responsive
       }
@@ -401,7 +467,7 @@ function App() {
       setFamilies((current) => [record, ...current])
 
       try {
-        void pb.collection('families').create({
+        if (supabase) persist(supabase.from('families').insert({
           id: record.id,
           name: record.name,
           familyType: record.familyType,
@@ -410,7 +476,7 @@ function App() {
           nextStep: record.nextStep,
           contact: record.contact,
           status: record.status,
-        })
+        }))
       } catch {
         // ignore database write failures and keep local state responsive
       }
@@ -434,7 +500,7 @@ function App() {
       setGoals(nextGoals)
 
       try {
-        void pb.collection('fundraising_goals').update(editingGoalId, { ...goalDraft })
+        if (supabase) persist(supabase.from('fundraising_goals').update({ ...goalDraft }).eq('id', editingGoalId))
       } catch {
         // ignore database update failures and keep local state responsive
       }
@@ -446,13 +512,13 @@ function App() {
       setGoals((current) => [record, ...current])
 
       try {
-        void pb.collection('fundraising_goals').create({
+        if (supabase) persist(supabase.from('fundraising_goals').insert({
           id: record.id,
           label: record.label,
           raised: record.raised,
           target: record.target,
           status: record.status,
-        })
+        }))
       } catch {
         // ignore database write failures and keep local state responsive
       }
@@ -714,7 +780,7 @@ function App() {
           <button type="button" className={activeView === 'Fundraising' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('Fundraising')}><span>◒</span>Fundraising</button>
           <p className="nav-label">Manage</p>
           <button className="nav-item" type="button"><span>✓</span>Approvals</button>
-          <button className="nav-item" type="button"><span>⚙</span>Settings</button>
+          <button className={activeView === 'Settings' ? 'nav-item active' : 'nav-item'} type="button" onClick={() => setActiveView('Settings')}><span>⚙</span>Settings</button>
         </nav>
         <div className="sidebar-footer"><div className="user-chip"><span className="user-avatar">JM</span><span><strong>Jordan Miller</strong><small>Program admin</small></span><span className="more">•••</span></div></div>
       </aside>
@@ -734,6 +800,7 @@ function App() {
           {activeView === 'Jobs' && renderJobsView()}
           {activeView === 'Families' && renderFamilyView()}
           {activeView === 'Fundraising' && renderFundraisingView()}
+          {activeView === 'Settings' && renderSettingsView()}
         </section>
       </main>
 

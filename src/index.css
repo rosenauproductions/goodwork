@@ -1,4 +1,9 @@
 :root { font-family: 'Avenir Next', 'Trebuchet MS', sans-serif; color: #20312d; background: #f6f7f3; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root[data-font-size='small'] { font-size: 14px; }
+:root[data-font-size='medium'] { font-size: 16px; }
+:root[data-font-size='large'] { font-size: 18px; }
+:root[data-theme='forest'] { background: #e8f1e9; }
+:root[data-theme='high-contrast'] { filter: contrast(1.12); }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 button { font: inherit; }

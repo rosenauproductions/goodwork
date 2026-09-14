@@ -1,5 +1,16 @@
 # React + TypeScript + Vite
 
+## Supabase setup
+
+The app uses Supabase for hosted persistence. Create a Supabase project, run [`supabase/schema.sql`](supabase/schema.sql) in the SQL Editor, then add these Vercel environment variables for the Production and Preview environments:
+
+```text
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-public-key
+```
+
+Add the same values to a local `.env.local` file before running `npm run dev`. Never use a Supabase service-role key in this frontend app.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

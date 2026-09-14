@@ -68,3 +68,15 @@
 .detail-actions { display: flex; justify-content: flex-end; gap: 10px; }
 @media (max-width: 1050px) { .family-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .view-header { display: block; }.jobs-table-head { display: none; }.jobs-table-row { grid-template-columns: 1fr; padding: 14px; }.jobs-table-actions { justify-content: flex-end; }.fundraising-summary { grid-template-columns: 1fr; } }
+.settings-layout { max-width: 860px; }
+.settings-lede { margin: 8px 0 0; color: #7a8d84; font-size: 11px; }
+.settings-live { display: inline-flex; align-items: center; gap: 7px; color: #3d8061; font-size: 10px; font-weight: 700; }
+.settings-live i { width: 7px; height: 7px; border-radius: 50%; background: #67a778; }
+.settings-section { background: #fff; border: 1px solid #e4e9e3; border-radius: 10px; padding: 22px; margin-top: 16px; }
+.settings-section-heading { margin-bottom: 20px; }.settings-section-heading h3 { margin: 0 0 5px; color: #29443a; font-size: 15px; }.settings-section-heading p { margin: 0; color: #83938b; font-size: 11px; }
+.settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.field-group { display: flex; flex-direction: column; gap: 7px; color: #47615a; font-size: 11px; font-weight: 600; }.field-group input, .field-group select { border: 1px solid #d7dfd7; border-radius: 8px; background: #f9fbf9; min-height: 40px; padding: 9px 11px; color: #1f342d; font: inherit; }.field-group input:focus, .field-group select:focus { outline: 2px solid rgba(218, 130, 109, .22); border-color: #d88d76; }
+.settings-choice-row, .settings-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid #edf1ed; }.settings-choice-row:first-of-type { border-top: 0; padding-top: 0; }.settings-choice-row strong, .settings-toggle-row strong { display: block; color: #29443a; font-size: 12px; }.settings-choice-row small, .settings-toggle-row small { display: block; margin-top: 4px; color: #85948d; font-size: 10px; }
+.segmented-control { display: flex; flex-wrap: wrap; gap: 5px; }.segmented-control button { border: 1px solid #dbe4dc; border-radius: 6px; background: #f8faf8; color: #60756c; padding: 8px 10px; font-size: 10px; cursor: pointer; }.segmented-control button.selected { border-color: #2d7058; background: #e5f1e7; color: #245c48; font-weight: 700; }
+.toggle { width: 42px; height: 24px; padding: 3px; border: 0; border-radius: 99px; background: #cbd5ce; cursor: pointer; }.toggle span { display: block; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s ease; }.toggle.selected { background: #3f8666; }.toggle.selected span { transform: translateX(18px); }
+@media (max-width: 640px) { .settings-form-grid { grid-template-columns: 1fr; }.settings-choice-row, .settings-toggle-row { align-items: flex-start; flex-direction: column; }.settings-live { margin-top: 16px; } }
