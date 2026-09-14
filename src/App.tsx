@@ -1,60 +1,167 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ensurePocketBaseAuth, pb } from './lib/pocketbase'
 import './App.css'
 import './form.css'
 
 type ViewKey = 'Overview' | 'Jobs' | 'Families' | 'Fundraising'
 type JobStatus = 'Needs review' | 'Awaiting parent' | 'Ready to assign' | 'Payment pending'
-type Job = { id: string; title: string; category: string; requestor: string; volunteer: string; status: JobStatus; risk: 'Green' | 'Yellow'; date: string }
+type Job = {
+  id: string
+  title: string
+  category: string
+  requestor: string
+  volunteer: string
+  status: JobStatus
+  risk: 'Green' | 'Yellow'
+  date: string
+  amount: number
+  notes: string
+}
 type FilterValue = 'All jobs' | JobStatus
 
+type FamilyStatus = 'Healthy' | 'Needs follow-up' | 'At risk'
+
 type Family = {
+  id: string
   name: string
   familyType: string
   activeJobs: number
   totalRaised: number
   nextStep: string
+  contact: string
+  status: FamilyStatus
 }
 
-const storageKey = 'church-fund-raiser-jobs'
+type FundraisingGoal = {
+  id: string
+  label: string
+  raised: number
+  target: number
+  status: 'On pace' | 'Ahead' | 'Needs attention'
+}
+
+type FamilyDraft = Omit<Family, 'id'>
+type GoalDraft = Omit<FundraisingGoal, 'id'>
+
+const jobsStorageKey = 'church-fund-raiser-jobs'
+const familiesStorageKey = 'church-fund-raiser-families'
+const goalsStorageKey = 'church-fund-raiser-goals'
+
+const normalizeJobs = (records: Partial<Job>[]): Job[] =>
+  records.map((job, index) => ({
+    id: job.id ?? `JF-${index + 101}`,
+    title: job.title ?? 'Untitled job',
+    category: job.category ?? 'Yard',
+    requestor: job.requestor ?? 'Unassigned',
+    volunteer: job.volunteer ?? 'Unassigned',
+    status: (job.status ?? 'Needs review') as JobStatus,
+    risk: (job.risk ?? 'Green') as Job['risk'],
+    date: job.date ?? 'Today',
+    amount: job.amount ?? 0,
+    notes: job.notes ?? 'No notes yet.',
+  }))
+
+const normalizeFamilies = (records: Partial<Family>[]): Family[] =>
+  records.map((family, index) => ({
+    id: family.id ?? `FAM-${index + 1}`,
+    name: family.name ?? 'Family',
+    familyType: family.familyType ?? 'Service family',
+    activeJobs: family.activeJobs ?? 0,
+    totalRaised: family.totalRaised ?? 0,
+    nextStep: family.nextStep ?? 'Follow up this week',
+    contact: family.contact ?? 'No contact listed',
+    status: (family.status ?? 'Healthy') as FamilyStatus,
+  }))
+
+const normalizeGoals = (records: Partial<FundraisingGoal>[]): FundraisingGoal[] =>
+  records.map((goal, index) => ({
+    id: goal.id ?? `GOAL-${index + 1}`,
+    label: goal.label ?? 'Fundraiser',
+    raised: goal.raised ?? 0,
+    target: goal.target ?? 100,
+    status: (goal.status ?? 'On pace') as FundraisingGoal['status'],
+  }))
 
 const initialJobs: Job[] = [
-  { id: 'JF-104', title: 'Leaf cleanup and bagging', category: 'Yard', requestor: 'Mara Ellis', volunteer: 'Jonah R.', status: 'Awaiting parent', risk: 'Green', date: 'Today, 4:30 PM' },
-  { id: 'JF-103', title: 'Dog walking, two afternoons', category: 'Pet services', requestor: 'Daniel Cho', volunteer: 'Unassigned', status: 'Ready to assign', risk: 'Yellow', date: 'Sat, Oct 12' },
-  { id: 'JF-102', title: 'Church welcome table setup', category: 'Events', requestor: 'Grace Church', volunteer: 'Amelia T.', status: 'Payment pending', risk: 'Green', date: 'Oct 6, 9:00 AM' },
-  { id: 'JF-101', title: 'Exterior car wash', category: 'Vehicle', requestor: 'Kevin Patel', volunteer: 'Noah B.', status: 'Needs review', risk: 'Green', date: 'Oct 14, 2:00 PM' },
+  { id: 'JF-104', title: 'Leaf cleanup and bagging', category: 'Yard', requestor: 'Mara Ellis', volunteer: 'Jonah R.', status: 'Awaiting parent', risk: 'Green', date: 'Today, 4:30 PM', amount: 45, notes: 'Parent approval is pending for the schedule change.' },
+  { id: 'JF-103', title: 'Dog walking, two afternoons', category: 'Pet services', requestor: 'Daniel Cho', volunteer: 'Unassigned', status: 'Ready to assign', risk: 'Yellow', date: 'Sat, Oct 12', amount: 60, notes: 'Needs a volunteer and a safety confirmation.' },
+  { id: 'JF-102', title: 'Church welcome table setup', category: 'Events', requestor: 'Grace Church', volunteer: 'Amelia T.', status: 'Payment pending', risk: 'Green', date: 'Oct 6, 9:00 AM', amount: 80, notes: 'Payment was collected but waiting for final confirmation.' },
+  { id: 'JF-101', title: 'Exterior car wash', category: 'Vehicle', requestor: 'Kevin Patel', volunteer: 'Noah B.', status: 'Needs review', risk: 'Green', date: 'Oct 14, 2:00 PM', amount: 35, notes: 'Budget and safety details need one final review.' },
+]
+
+const initialFamilies: Family[] = [
+  { id: 'FAM-101', name: 'Mara Ellis', familyType: 'Service family', activeJobs: 2, totalRaised: 220, nextStep: 'Parent approval due', contact: 'mara.ellis@example.com', status: 'Needs follow-up' },
+  { id: 'FAM-102', name: 'Daniel Cho', familyType: 'New family', activeJobs: 1, totalRaised: 90, nextStep: 'Assign volunteer', contact: 'daniel.cho@example.com', status: 'Healthy' },
+  { id: 'FAM-103', name: 'Grace Church', familyType: 'Group partner', activeJobs: 3, totalRaised: 360, nextStep: 'Payment confirmation', contact: 'hello@gracechurch.org', status: 'Healthy' },
+  { id: 'FAM-104', name: 'Kevin Patel', familyType: 'Returning family', activeJobs: 1, totalRaised: 140, nextStep: 'Safety review', contact: 'kevin.patel@example.com', status: 'At risk' },
+]
+
+const initialGoals: FundraisingGoal[] = [
+  { id: 'GOAL-101', label: 'Roof repair fund', raised: 2160, target: 3000, status: 'On pace' },
+  { id: 'GOAL-102', label: 'Youth missions trip', raised: 1440, target: 3000, status: 'Needs attention' },
+  { id: 'GOAL-103', label: 'Community meals', raised: 1620, target: 2000, status: 'Ahead' },
 ]
 
 const filterOptions: FilterValue[] = ['All jobs', 'Needs review', 'Awaiting parent', 'Ready to assign', 'Payment pending']
 const categoryOptions = ['Yard', 'Pet services', 'Events', 'Vehicle']
 
-const familyProfiles: Family[] = [
-  { name: 'Mara Ellis', familyType: 'Service family', activeJobs: 2, totalRaised: 220, nextStep: 'Parent approval due' },
-  { name: 'Daniel Cho', familyType: 'New family', activeJobs: 1, totalRaised: 90, nextStep: 'Assign volunteer' },
-  { name: 'Grace Church', familyType: 'Group partner', activeJobs: 3, totalRaised: 360, nextStep: 'Payment confirmation' },
-  { name: 'Kevin Patel', familyType: 'Returning family', activeJobs: 1, totalRaised: 140, nextStep: 'Safety review' },
-]
+const defaultFamilyDraft: FamilyDraft = {
+  name: '',
+  familyType: 'Service family',
+  activeJobs: 0,
+  totalRaised: 0,
+  nextStep: 'Follow up this week',
+  contact: '',
+  status: 'Healthy',
+}
 
-const fundraisingMilestones = [
-  { label: 'Roof repair fund', progress: 72, amount: '$2,160', target: '$3,000' },
-  { label: 'Youth missions trip', progress: 48, amount: '$1,440', target: '$3,000' },
-  { label: 'Community meals', progress: 81, amount: '$1,620', target: '$2,000' },
-]
+const defaultGoalDraft: GoalDraft = {
+  label: '',
+  raised: 0,
+  target: 1000,
+  status: 'On pace',
+}
 
 function App() {
   const [jobs, setJobs] = useState<Job[]>(() => {
     if (typeof window === 'undefined') return initialJobs
 
     try {
-      const saved = window.localStorage.getItem(storageKey)
-      return saved ? (JSON.parse(saved) as Job[]) : initialJobs
+      const saved = window.localStorage.getItem(jobsStorageKey)
+      return saved ? normalizeJobs(JSON.parse(saved) as Partial<Job>[]) : initialJobs
     } catch {
       return initialJobs
     }
   })
+
+  const [families, setFamilies] = useState<Family[]>(() => {
+    if (typeof window === 'undefined') return initialFamilies
+
+    try {
+      const saved = window.localStorage.getItem(familiesStorageKey)
+      return saved ? normalizeFamilies(JSON.parse(saved) as Partial<Family>[]) : initialFamilies
+    } catch {
+      return initialFamilies
+    }
+  })
+
+  const [goals, setGoals] = useState<FundraisingGoal[]>(() => {
+    if (typeof window === 'undefined') return initialGoals
+
+    try {
+      const saved = window.localStorage.getItem(goalsStorageKey)
+      return saved ? normalizeGoals(JSON.parse(saved) as Partial<FundraisingGoal>[]) : initialGoals
+    } catch {
+      return initialGoals
+    }
+  })
+
   const [activeView, setActiveView] = useState<ViewKey>('Overview')
   const [filter, setFilter] = useState<FilterValue>('All jobs')
   const [notice, setNotice] = useState('')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [isEditingJob, setIsEditingJob] = useState(false)
+  const [detailDraft, setDetailDraft] = useState<Job | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [draft, setDraft] = useState({
     title: '',
@@ -64,17 +171,68 @@ function App() {
     date: 'Today, 4:30 PM',
     risk: 'Green' as Job['risk'],
   })
+  const [familyDraft, setFamilyDraft] = useState<FamilyDraft>(defaultFamilyDraft)
+  const [editingFamilyId, setEditingFamilyId] = useState<string | null>(null)
+  const [isFamilyModalOpen, setIsFamilyModalOpen] = useState(false)
+  const [goalDraft, setGoalDraft] = useState<GoalDraft>(defaultGoalDraft)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
+  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false)
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(jobs))
+      window.localStorage.setItem(jobsStorageKey, JSON.stringify(normalizeJobs(jobs)))
     } catch {
       // ignore storage issues in restricted environments
     }
   }, [jobs])
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(familiesStorageKey, JSON.stringify(normalizeFamilies(families)))
+    } catch {
+      // ignore storage issues in restricted environments
+    }
+  }, [families])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(goalsStorageKey, JSON.stringify(normalizeGoals(goals)))
+    } catch {
+      // ignore storage issues in restricted environments
+    }
+  }, [goals])
+
+  useEffect(() => {
+    setDetailDraft(selectedJob ?? null)
+    setIsEditingJob(false)
+  }, [selectedJobId, jobs])
+
+  useEffect(() => {
+    const loadFromDb = async () => {
+      try {
+        await ensurePocketBaseAuth()
+
+        const [jobData, familyData, goalData] = await Promise.all([
+          pb.collection('jobs').getFullList({ sort: '-created' }),
+          pb.collection('families').getFullList({ sort: '-created' }),
+          pb.collection('fundraising_goals').getFullList({ sort: '-created' }),
+        ])
+
+        if (jobData.length) setJobs(normalizeJobs(jobData as Partial<Job>[]))
+        if (familyData.length) setFamilies(normalizeFamilies(familyData as Partial<Family>[]))
+        if (goalData.length) setGoals(normalizeGoals(goalData as Partial<FundraisingGoal>[]))
+      } catch {
+        // allow the app to continue in local/demo mode if PocketBase is not yet initialized
+      }
+    }
+
+    void loadFromDb()
+  }, [])
+
   const filteredJobs = filter === 'All jobs' ? jobs : jobs.filter((job) => job.status === filter)
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? null, [jobs, selectedJobId])
+  const totalRaised = goals.reduce((sum, goal) => sum + goal.raised, 0)
+  const totalTarget = goals.reduce((sum, goal) => sum + goal.target, 0)
 
   const showNotice = (message: string) => {
     setNotice(message)
@@ -82,27 +240,83 @@ function App() {
   }
 
   const confirmPayment = (jobId: string) => {
-    setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, status: 'Payment pending' } : job)))
+    const nextJobs = jobs.map((job) => (job.id === jobId ? { ...job, status: 'Payment pending' as JobStatus } : job))
+    setJobs(nextJobs)
+
+    try {
+      const currentJob = nextJobs.find((job) => job.id === jobId)
+      if (currentJob) {
+        void pb.collection('jobs').update(jobId, {
+          status: currentJob.status,
+        })
+      }
+    } catch {
+      // ignore database update failures and keep local state responsive
+    }
+
     showNotice('Payment confirmed and added to the parent review queue.')
   }
 
   const advanceJob = (jobId: string) => {
-    setJobs((current) =>
-      current.map((job) => {
-        if (job.id !== jobId) return job
+    const nextJobs = jobs.map((job) => {
+      if (job.id !== jobId) return job
 
-        const flow: JobStatus[] = ['Needs review', 'Awaiting parent', 'Ready to assign', 'Payment pending']
-        const currentIndex = flow.indexOf(job.status)
-        const nextStatus = flow[(currentIndex + 1) % flow.length]
+      const flow: JobStatus[] = ['Needs review', 'Awaiting parent', 'Ready to assign', 'Payment pending']
+      const currentIndex = flow.indexOf(job.status)
+      const nextStatus = flow[(currentIndex + 1) % flow.length]
 
-        return { ...job, status: nextStatus }
-      }),
-    )
+      return { ...job, status: nextStatus }
+    })
+
+    setJobs(nextJobs)
+
+    try {
+      const currentJob = nextJobs.find((job) => job.id === jobId)
+      if (currentJob) {
+        void pb.collection('jobs').update(jobId, {
+          status: currentJob.status,
+        })
+      }
+    } catch {
+      // ignore database update failures and keep local state responsive
+    }
+
     showNotice('Job moved to the next stage in the review flow.')
   }
 
   const handleDraftChange = (field: keyof typeof draft, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }))
+  }
+
+  const handleDetailDraftChange = <K extends keyof Job>(field: K, value: Job[K]) => {
+    setDetailDraft((current) => (current ? { ...current, [field]: value } : current))
+  }
+
+  const saveDetailChanges = () => {
+    if (!detailDraft) return
+
+    const updatedJobs = jobs.map((job) => (job.id === detailDraft.id ? detailDraft : job))
+    setJobs(updatedJobs)
+
+    try {
+      void pb.collection('jobs').update(detailDraft.id, {
+        title: detailDraft.title,
+        category: detailDraft.category,
+        requestor: detailDraft.requestor,
+        volunteer: detailDraft.volunteer,
+        status: detailDraft.status,
+        risk: detailDraft.risk,
+        date: detailDraft.date,
+        amount: detailDraft.amount,
+        notes: detailDraft.notes,
+      })
+    } catch {
+      // ignore database update failures and keep local state responsive
+    }
+
+    setSelectedJobId(detailDraft.id)
+    setIsEditingJob(false)
+    showNotice('Job details saved.')
   }
 
   const handleCreateJob = (event: FormEvent<HTMLFormElement>) => {
@@ -127,9 +341,29 @@ function App() {
       status: 'Needs review',
       risk: draft.risk,
       date: draft.date,
+      amount: 0,
+      notes: 'No notes yet.',
     }
 
     setJobs((current) => [newJob, ...current])
+
+    try {
+      void pb.collection('jobs').create({
+        id: newJob.id,
+        title: newJob.title,
+        category: newJob.category,
+        requestor: newJob.requestor,
+        volunteer: newJob.volunteer,
+        status: newJob.status,
+        risk: newJob.risk,
+        date: newJob.date,
+        amount: newJob.amount,
+        notes: newJob.notes,
+      })
+    } catch {
+      // ignore database write failures and keep local state responsive
+    }
+
     setFilter('All jobs')
     setDraft({
       title: '',
@@ -142,6 +376,93 @@ function App() {
     setIsCreateOpen(false)
     setActiveView('Overview')
     showNotice('New job added to the review queue.')
+  }
+
+  const handleSaveFamily = () => {
+    if (!familyDraft.name.trim()) {
+      showNotice('Add a family name before saving the record.')
+      return
+    }
+
+    if (editingFamilyId) {
+      const nextFamilies = families.map((family) => (family.id === editingFamilyId ? { ...family, ...familyDraft } : family))
+      setFamilies(nextFamilies)
+
+      try {
+        void pb.collection('families').update(editingFamilyId, { ...familyDraft })
+      } catch {
+        // ignore database update failures and keep local state responsive
+      }
+
+      showNotice('Family profile updated.')
+    } else {
+      const nextId = `FAM-${Date.now()}`
+      const record = { id: nextId, ...familyDraft }
+      setFamilies((current) => [record, ...current])
+
+      try {
+        void pb.collection('families').create({
+          id: record.id,
+          name: record.name,
+          familyType: record.familyType,
+          activeJobs: record.activeJobs,
+          totalRaised: record.totalRaised,
+          nextStep: record.nextStep,
+          contact: record.contact,
+          status: record.status,
+        })
+      } catch {
+        // ignore database write failures and keep local state responsive
+      }
+
+      showNotice('Family record added.')
+    }
+
+    setIsFamilyModalOpen(false)
+    setFamilyDraft(defaultFamilyDraft)
+    setEditingFamilyId(null)
+  }
+
+  const handleSaveGoal = () => {
+    if (!goalDraft.label.trim()) {
+      showNotice('Add a goal title before saving.')
+      return
+    }
+
+    if (editingGoalId) {
+      const nextGoals = goals.map((goal) => (goal.id === editingGoalId ? { ...goal, ...goalDraft } : goal))
+      setGoals(nextGoals)
+
+      try {
+        void pb.collection('fundraising_goals').update(editingGoalId, { ...goalDraft })
+      } catch {
+        // ignore database update failures and keep local state responsive
+      }
+
+      showNotice('Goal updated.')
+    } else {
+      const nextId = `GOAL-${Date.now()}`
+      const record = { id: nextId, ...goalDraft }
+      setGoals((current) => [record, ...current])
+
+      try {
+        void pb.collection('fundraising_goals').create({
+          id: record.id,
+          label: record.label,
+          raised: record.raised,
+          target: record.target,
+          status: record.status,
+        })
+      } catch {
+        // ignore database write failures and keep local state responsive
+      }
+
+      showNotice('Fundraising goal added.')
+    }
+
+    setIsGoalModalOpen(false)
+    setGoalDraft(defaultGoalDraft)
+    setEditingGoalId(null)
   }
 
   const renderOverview = () => (
@@ -160,8 +481,8 @@ function App() {
       <div className="metric-grid">
         <article className="metric-card primary">
           <div className="metric-label"><span>Raised this month</span><span className="trend">↗ 18.4%</span></div>
-          <strong>$1,840</strong>
-          <div className="metric-foot"><span>of $3,000 monthly goal</span><div className="progress"><span style={{ width: '61%' }} /></div></div>
+          <strong>${totalRaised}</strong>
+          <div className="metric-foot"><span>of ${totalTarget} campaign target</span><div className="progress"><span style={{ width: `${Math.min(100, Math.round((totalRaised / totalTarget) * 100))}%` }} /></div></div>
         </article>
         <article className="metric-card">
           <div className="metric-label"><span>Active jobs</span><span className="metric-icon green">◌</span></div>
@@ -169,9 +490,9 @@ function App() {
           <div className="metric-foot"><span className="good-text">{jobs.filter((job) => job.status !== 'Payment pending').length} need your review</span><span className="metric-arrow">→</span></div>
         </article>
         <article className="metric-card">
-          <div className="metric-label"><span>Participating youth</span><span className="metric-icon coral">♧</span></div>
-          <strong>28</strong>
-          <div className="metric-foot"><span>6 new this month</span><span className="metric-arrow">→</span></div>
+          <div className="metric-label"><span>Open families</span><span className="metric-icon coral">♧</span></div>
+          <strong>{families.length}</strong>
+          <div className="metric-foot"><span>{families.filter((family) => family.status === 'Needs follow-up').length} need follow-up</span><span className="metric-arrow">→</span></div>
         </article>
       </div>
 
@@ -296,12 +617,15 @@ function App() {
           <p className="eyebrow">Families</p>
           <h2>Support roster</h2>
         </div>
-        <button className="secondary-button" type="button">Export list</button>
+        <div className="view-actions">
+          <button className="secondary-button" type="button">Export list</button>
+          <button className="primary-button" type="button" onClick={() => { setEditingFamilyId(null); setFamilyDraft(defaultFamilyDraft); setIsFamilyModalOpen(true) }}>+ Add family</button>
+        </div>
       </div>
 
       <div className="family-grid">
-        {familyProfiles.map((family) => (
-          <article key={family.name} className="family-card">
+        {families.map((family) => (
+          <article key={family.id} className="family-card">
             <div className="family-card-head">
               <span className="family-avatar">{family.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
               <div>
@@ -309,11 +633,19 @@ function App() {
                 <small>{family.familyType}</small>
               </div>
             </div>
+            <div className="family-status-row">
+              <span className={'status-pill ' + family.status.toLowerCase().replace(/\s+/g, '-')}>{family.status}</span>
+            </div>
             <div className="family-stats">
               <div><strong>{family.activeJobs}</strong><span>Open jobs</span></div>
               <div><strong>${family.totalRaised}</strong><span>Raised</span></div>
             </div>
-            <p>{family.nextStep}</p>
+            <p className="family-note">{family.nextStep}</p>
+            <p className="family-contact">Contact: {family.contact}</p>
+            <div className="family-card-actions">
+              <button type="button" className="secondary-button small" onClick={() => { setEditingFamilyId(family.id); setFamilyDraft({ ...family }); setIsFamilyModalOpen(true) }}>Edit</button>
+              <button type="button" className="ghost-link" onClick={() => setFamilies((current) => current.filter((item) => item.id !== family.id))}>Remove</button>
+            </div>
           </article>
         ))}
       </div>
@@ -327,34 +659,44 @@ function App() {
           <p className="eyebrow">Fundraising</p>
           <h2>Campaign progress</h2>
         </div>
-        <button className="primary-button" type="button">+ Add goal</button>
+        <button className="primary-button" type="button" onClick={() => { setEditingGoalId(null); setGoalDraft(defaultGoalDraft); setIsGoalModalOpen(true) }}>+ Add goal</button>
       </div>
 
       <div className="fundraising-summary">
         <div className="summary-metric">
           <span>YTD raised</span>
-          <strong>$5,320</strong>
+          <strong>${totalRaised}</strong>
         </div>
         <div className="summary-metric">
           <span>Goal</span>
-          <strong>$8,500</strong>
+          <strong>${totalTarget}</strong>
         </div>
         <div className="summary-metric">
           <span>Donors</span>
-          <strong>94</strong>
+          <strong>{Math.max(20, goals.length * 14)}</strong>
         </div>
       </div>
 
       <div className="milestone-list">
-        {fundraisingMilestones.map((item) => (
-          <div key={item.label} className="milestone-item">
-            <div className="milestone-meta">
-              <strong>{item.label}</strong>
-              <span>{item.amount} of {item.target}</span>
+        {goals.map((item) => {
+          const progress = Math.min(100, Math.round((item.raised / item.target) * 100))
+          return (
+            <div key={item.id} className="milestone-item">
+              <div className="milestone-meta">
+                <div className="milestone-title-block">
+                  <strong>{item.label}</strong>
+                  <span>{item.status}</span>
+                </div>
+                <span>${item.raised} of ${item.target}</span>
+              </div>
+              <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
+              <div className="goal-card-actions">
+                <button type="button" className="secondary-button small" onClick={() => { setEditingGoalId(item.id); setGoalDraft({ ...item }); setIsGoalModalOpen(true) }}>Edit</button>
+                <button type="button" className="ghost-link" onClick={() => setGoals((current) => current.filter((goal) => goal.id !== item.id))}>Remove</button>
+              </div>
             </div>
-            <div className="progress-bar"><span style={{ width: `${item.progress}%` }} /></div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -395,38 +737,112 @@ function App() {
         </section>
       </main>
 
-      {selectedJob && (
+      {selectedJob && detailDraft && (
         <div className="detail-backdrop" role="dialog" aria-modal="true" aria-labelledby="job-detail-title">
           <div className="detail-panel">
             <div className="detail-header">
               <div>
                 <p className="eyebrow">Job detail</p>
-                <h2 id="job-detail-title">{selectedJob.title}</h2>
+                <h2 id="job-detail-title">{isEditingJob ? 'Edit job' : detailDraft.title}</h2>
               </div>
               <button type="button" className="close-button" onClick={() => setSelectedJobId(null)} aria-label="Close detail">✕</button>
             </div>
 
             <div className="detail-body">
-              <div className="detail-summary">
-                <span className="job-badge large">{selectedJob.category === 'Pet services' ? '♧' : selectedJob.category === 'Events' ? '✦' : '✳'}</span>
-                <div>
-                  <strong>{selectedJob.id}</strong>
-                  <small>{selectedJob.category}</small>
+              {!isEditingJob ? (
+                <>
+                  <div className="detail-summary">
+                    <span className="job-badge large">{detailDraft.category === 'Pet services' ? '♧' : detailDraft.category === 'Events' ? '✦' : '✳'}</span>
+                    <div>
+                      <strong>{detailDraft.id}</strong>
+                      <small>{detailDraft.category}</small>
+                    </div>
+                  </div>
+
+                  <dl className="detail-list">
+                    <div><dt>Requestor</dt><dd>{detailDraft.requestor}</dd></div>
+                    <div><dt>Volunteer</dt><dd>{detailDraft.volunteer}</dd></div>
+                    <div><dt>Status</dt><dd>{detailDraft.status}</dd></div>
+                    <div><dt>Risk</dt><dd>{detailDraft.risk}</dd></div>
+                    <div><dt>Amount</dt><dd>${detailDraft.amount}</dd></div>
+                    <div><dt>Date</dt><dd>{detailDraft.date}</dd></div>
+                  </dl>
+
+                  <div className="detail-notes">
+                    <h3>Notes</h3>
+                    <p>{detailDraft.notes}</p>
+                  </div>
+
+                  <div className="detail-actions">
+                    <button type="button" className="secondary-button" onClick={() => setSelectedJobId(null)}>Close</button>
+                    <button type="button" className="secondary-button" onClick={() => setIsEditingJob(true)}>Edit</button>
+                    <button type="button" className="primary-button" onClick={() => advanceJob(detailDraft.id)}>Advance</button>
+                  </div>
+                </>
+              ) : (
+                <div className="detail-form">
+                  <div className="field-row">
+                    <label className="field-group">
+                      <span>Title</span>
+                      <input value={detailDraft.title} onChange={(event) => handleDetailDraftChange('title', event.target.value)} />
+                    </label>
+                    <label className="field-group">
+                      <span>Status</span>
+                      <select value={detailDraft.status} onChange={(event) => handleDetailDraftChange('status', event.target.value as JobStatus)}>
+                        {filterOptions.filter((option) => option !== 'All jobs').map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="field-row">
+                    <label className="field-group">
+                      <span>Requestor</span>
+                      <input value={detailDraft.requestor} onChange={(event) => handleDetailDraftChange('requestor', event.target.value)} />
+                    </label>
+                    <label className="field-group">
+                      <span>Volunteer</span>
+                      <input value={detailDraft.volunteer} onChange={(event) => handleDetailDraftChange('volunteer', event.target.value)} />
+                    </label>
+                  </div>
+
+                  <div className="field-row">
+                    <label className="field-group">
+                      <span>Category</span>
+                      <select value={detailDraft.category} onChange={(event) => handleDetailDraftChange('category', event.target.value)}>
+                        {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                    <label className="field-group">
+                      <span>Risk</span>
+                      <select value={detailDraft.risk} onChange={(event) => handleDetailDraftChange('risk', event.target.value as Job['risk'])}>
+                        <option value="Green">Green</option>
+                        <option value="Yellow">Yellow</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="field-row">
+                    <label className="field-group">
+                      <span>Amount</span>
+                      <input type="number" value={detailDraft.amount} onChange={(event) => handleDetailDraftChange('amount', Number(event.target.value) || 0)} />
+                    </label>
+                    <label className="field-group">
+                      <span>Date</span>
+                      <input value={detailDraft.date} onChange={(event) => handleDetailDraftChange('date', event.target.value)} />
+                    </label>
+                  </div>
+
+                  <label className="field-group full-width">
+                    <span>Notes</span>
+                    <textarea value={detailDraft.notes} rows={4} onChange={(event) => handleDetailDraftChange('notes', event.target.value)} />
+                  </label>
+
+                  <div className="detail-actions">
+                    <button type="button" className="secondary-button" onClick={() => setIsEditingJob(false)}>Cancel</button>
+                    <button type="button" className="primary-button" onClick={saveDetailChanges}>Save</button>
+                  </div>
                 </div>
-              </div>
-
-              <dl className="detail-list">
-                <div><dt>Requestor</dt><dd>{selectedJob.requestor}</dd></div>
-                <div><dt>Volunteer</dt><dd>{selectedJob.volunteer}</dd></div>
-                <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
-                <div><dt>Risk</dt><dd>{selectedJob.risk}</dd></div>
-                <div><dt>Date</dt><dd>{selectedJob.date}</dd></div>
-              </dl>
-
-              <div className="detail-actions">
-                <button type="button" className="secondary-button" onClick={() => setSelectedJobId(null)}>Close</button>
-                <button type="button" className="primary-button" onClick={() => advanceJob(selectedJob.id)}>Advance</button>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -486,6 +902,114 @@ function App() {
               <div className="modal-actions">
                 <button type="button" className="secondary-button" onClick={() => setIsCreateOpen(false)}>Cancel</button>
                 <button type="submit" className="primary-button">Save job</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isFamilyModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="family-modal-title">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Family record</p>
+                <h2 id="family-modal-title">{editingFamilyId ? 'Edit family' : 'Add family'}</h2>
+              </div>
+              <button type="button" className="close-button" onClick={() => setIsFamilyModalOpen(false)} aria-label="Close family form">✕</button>
+            </div>
+
+            <form className="job-form" onSubmit={(event) => { event.preventDefault(); handleSaveFamily() }}>
+              <label>
+                <span>Family name</span>
+                <input value={familyDraft.name} onChange={(event) => setFamilyDraft((current) => ({ ...current, name: event.target.value }))} />
+              </label>
+
+              <div className="form-row">
+                <label>
+                  <span>Type</span>
+                  <input value={familyDraft.familyType} onChange={(event) => setFamilyDraft((current) => ({ ...current, familyType: event.target.value }))} />
+                </label>
+                <label>
+                  <span>Status</span>
+                  <select value={familyDraft.status} onChange={(event) => setFamilyDraft((current) => ({ ...current, status: event.target.value as Family['status'] }))}>
+                    <option value="Healthy">Healthy</option>
+                    <option value="Needs follow-up">Needs follow-up</option>
+                    <option value="At risk">At risk</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label>
+                  <span>Open jobs</span>
+                  <input type="number" value={familyDraft.activeJobs} onChange={(event) => setFamilyDraft((current) => ({ ...current, activeJobs: Number(event.target.value) || 0 }))} />
+                </label>
+                <label>
+                  <span>Raised</span>
+                  <input type="number" value={familyDraft.totalRaised} onChange={(event) => setFamilyDraft((current) => ({ ...current, totalRaised: Number(event.target.value) || 0 }))} />
+                </label>
+              </div>
+
+              <label>
+                <span>Contact</span>
+                <input value={familyDraft.contact} onChange={(event) => setFamilyDraft((current) => ({ ...current, contact: event.target.value }))} />
+              </label>
+
+              <label>
+                <span>Next step</span>
+                <input value={familyDraft.nextStep} onChange={(event) => setFamilyDraft((current) => ({ ...current, nextStep: event.target.value }))} />
+              </label>
+
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => setIsFamilyModalOpen(false)}>Cancel</button>
+                <button type="submit" className="primary-button">Save family</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isGoalModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="goal-modal-title">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Fundraising goal</p>
+                <h2 id="goal-modal-title">{editingGoalId ? 'Edit goal' : 'Add goal'}</h2>
+              </div>
+              <button type="button" className="close-button" onClick={() => setIsGoalModalOpen(false)} aria-label="Close goal form">✕</button>
+            </div>
+
+            <form className="job-form" onSubmit={(event) => { event.preventDefault(); handleSaveGoal() }}>
+              <label>
+                <span>Goal name</span>
+                <input value={goalDraft.label} onChange={(event) => setGoalDraft((current) => ({ ...current, label: event.target.value }))} />
+              </label>
+
+              <div className="form-row">
+                <label>
+                  <span>Raised</span>
+                  <input type="number" value={goalDraft.raised} onChange={(event) => setGoalDraft((current) => ({ ...current, raised: Number(event.target.value) || 0 }))} />
+                </label>
+                <label>
+                  <span>Target</span>
+                  <input type="number" value={goalDraft.target} onChange={(event) => setGoalDraft((current) => ({ ...current, target: Number(event.target.value) || 0 }))} />
+                </label>
+              </div>
+
+              <label>
+                <span>Status</span>
+                <select value={goalDraft.status} onChange={(event) => setGoalDraft((current) => ({ ...current, status: event.target.value as FundraisingGoal['status'] }))}>
+                  <option value="On pace">On pace</option>
+                  <option value="Ahead">Ahead</option>
+                  <option value="Needs attention">Needs attention</option>
+                </select>
+              </label>
+
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => setIsGoalModalOpen(false)}>Cancel</button>
+                <button type="submit" className="primary-button">Save goal</button>
               </div>
             </form>
           </div>
