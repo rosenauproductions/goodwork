@@ -54,10 +54,6 @@ type WorkspaceSettings = {
   font_size: FontSize
 }
 
-const jobsStorageKey = 'church-fund-raiser-jobs'
-const familiesStorageKey = 'church-fund-raiser-families'
-const goalsStorageKey = 'church-fund-raiser-goals'
-
 const normalizeJobs = (records: Partial<Job>[]): Job[] =>
   records.map((job, index) => ({
     id: job.id ?? `JF-${index + 101}`,
@@ -93,26 +89,6 @@ const normalizeGoals = (records: Partial<FundraisingGoal>[]): FundraisingGoal[] 
     status: (goal.status ?? 'On pace') as FundraisingGoal['status'],
   }))
 
-const initialJobs: Job[] = [
-  { id: 'JF-104', title: 'Leaf cleanup and bagging', category: 'Yard', requestor: 'Mara Ellis', volunteer: 'Jonah R.', status: 'Awaiting parent', risk: 'Green', date: 'Today, 4:30 PM', amount: 45, notes: 'Parent approval is pending for the schedule change.' },
-  { id: 'JF-103', title: 'Dog walking, two afternoons', category: 'Pet services', requestor: 'Daniel Cho', volunteer: 'Unassigned', status: 'Ready to assign', risk: 'Yellow', date: 'Sat, Oct 12', amount: 60, notes: 'Needs a volunteer and a safety confirmation.' },
-  { id: 'JF-102', title: 'Church welcome table setup', category: 'Events', requestor: 'Grace Church', volunteer: 'Amelia T.', status: 'Payment pending', risk: 'Green', date: 'Oct 6, 9:00 AM', amount: 80, notes: 'Payment was collected but waiting for final confirmation.' },
-  { id: 'JF-101', title: 'Exterior car wash', category: 'Vehicle', requestor: 'Kevin Patel', volunteer: 'Noah B.', status: 'Needs review', risk: 'Green', date: 'Oct 14, 2:00 PM', amount: 35, notes: 'Budget and safety details need one final review.' },
-]
-
-const initialFamilies: Family[] = [
-  { id: 'FAM-101', name: 'Mara Ellis', familyType: 'Service family', activeJobs: 2, totalRaised: 220, nextStep: 'Parent approval due', contact: 'mara.ellis@example.com', status: 'Needs follow-up' },
-  { id: 'FAM-102', name: 'Daniel Cho', familyType: 'New family', activeJobs: 1, totalRaised: 90, nextStep: 'Assign volunteer', contact: 'daniel.cho@example.com', status: 'Healthy' },
-  { id: 'FAM-103', name: 'Grace Church', familyType: 'Group partner', activeJobs: 3, totalRaised: 360, nextStep: 'Payment confirmation', contact: 'hello@gracechurch.org', status: 'Healthy' },
-  { id: 'FAM-104', name: 'Kevin Patel', familyType: 'Returning family', activeJobs: 1, totalRaised: 140, nextStep: 'Safety review', contact: 'kevin.patel@example.com', status: 'At risk' },
-]
-
-const initialGoals: FundraisingGoal[] = [
-  { id: 'GOAL-101', label: 'Roof repair fund', raised: 2160, target: 3000, status: 'On pace' },
-  { id: 'GOAL-102', label: 'Youth missions trip', raised: 1440, target: 3000, status: 'Needs attention' },
-  { id: 'GOAL-103', label: 'Community meals', raised: 1620, target: 2000, status: 'Ahead' },
-]
-
 const filterOptions: FilterValue[] = ['All jobs', 'Needs review', 'Awaiting parent', 'Ready to assign', 'Payment pending']
 const categoryOptions = ['Yard', 'Pet services', 'Events', 'Vehicle']
 
@@ -144,38 +120,9 @@ const defaultSettings: WorkspaceSettings = {
 }
 
 function App() {
-  const [jobs, setJobs] = useState<Job[]>(() => {
-    if (typeof window === 'undefined') return initialJobs
-
-    try {
-      const saved = window.localStorage.getItem(jobsStorageKey)
-      return saved ? normalizeJobs(JSON.parse(saved) as Partial<Job>[]) : initialJobs
-    } catch {
-      return initialJobs
-    }
-  })
-
-  const [families, setFamilies] = useState<Family[]>(() => {
-    if (typeof window === 'undefined') return initialFamilies
-
-    try {
-      const saved = window.localStorage.getItem(familiesStorageKey)
-      return saved ? normalizeFamilies(JSON.parse(saved) as Partial<Family>[]) : initialFamilies
-    } catch {
-      return initialFamilies
-    }
-  })
-
-  const [goals, setGoals] = useState<FundraisingGoal[]>(() => {
-    if (typeof window === 'undefined') return initialGoals
-
-    try {
-      const saved = window.localStorage.getItem(goalsStorageKey)
-      return saved ? normalizeGoals(JSON.parse(saved) as Partial<FundraisingGoal>[]) : initialGoals
-    } catch {
-      return initialGoals
-    }
-  })
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [families, setFamilies] = useState<Family[]>([])
+  const [goals, setGoals] = useState<FundraisingGoal[]>([])
 
   const [activeView, setActiveView] = useState<ViewKey>('Overview')
   const [filter, setFilter] = useState<FilterValue>('All jobs')
@@ -204,30 +151,6 @@ function App() {
     document.documentElement.dataset.theme = settings.theme
     document.documentElement.dataset.fontSize = settings.font_size
   }, [settings.theme, settings.font_size])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(jobsStorageKey, JSON.stringify(normalizeJobs(jobs)))
-    } catch {
-      // ignore storage issues in restricted environments
-    }
-  }, [jobs])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(familiesStorageKey, JSON.stringify(normalizeFamilies(families)))
-    } catch {
-      // ignore storage issues in restricted environments
-    }
-  }, [families])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(goalsStorageKey, JSON.stringify(normalizeGoals(goals)))
-    } catch {
-      // ignore storage issues in restricted environments
-    }
-  }, [goals])
 
   useEffect(() => {
     setDetailDraft(selectedJob ?? null)

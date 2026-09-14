@@ -46,6 +46,14 @@ create table if not exists public.workspace_settings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.workspace_members (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  display_name text not null,
+  role text not null check (role in ('admin', 'parent', 'volunteer')),
+  created_at timestamptz not null default now()
+);
+
 insert into public.workspace_settings (id)
 values ('default')
 on conflict (id) do nothing;
@@ -54,6 +62,7 @@ alter table public.jobs enable row level security;
 alter table public.families enable row level security;
 alter table public.fundraising_goals enable row level security;
 alter table public.workspace_settings enable row level security;
+alter table public.workspace_members enable row level security;
 
 create policy "public can read jobs" on public.jobs for select to anon, authenticated using (true);
 create policy "public can write jobs" on public.jobs for all to anon, authenticated using (true) with check (true);
@@ -63,3 +72,4 @@ create policy "public can read fundraising goals" on public.fundraising_goals fo
 create policy "public can write fundraising goals" on public.fundraising_goals for all to anon, authenticated using (true) with check (true);
 create policy "public can read workspace settings" on public.workspace_settings for select to anon, authenticated using (true);
 create policy "public can write workspace settings" on public.workspace_settings for all to anon, authenticated using (true) with check (true);
+create policy "authenticated can read workspace members" on public.workspace_members for select to authenticated using (true);
