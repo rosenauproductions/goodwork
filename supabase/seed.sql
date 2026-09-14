@@ -23,7 +23,7 @@ on conflict (id) do nothing;
 
 insert into public.workspace_members (email, display_name, role)
 values
-  ('admin@goodwork.local', 'Jordan Miller', 'admin'),
-  ('parent@goodwork.local', 'Mara Ellis', 'parent'),
-  ('volunteer@goodwork.local', 'Noah B.', 'volunteer')
+  ('rosenauproductions@gmail.com', 'Jordan Miller', 'admin'),
+  ('capri2_77@yahoo.com', 'Mara Ellis', 'parent'),
+  ('silverlbud@gmail.com', 'Noah B.', 'volunteer')
 on conflict (email) do nothing;
